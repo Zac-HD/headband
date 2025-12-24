@@ -29,7 +29,7 @@ A "magic headband" (Pathfinder-style) powered by Raspberry Pi Zero 2 W, featurin
 
 ## Quick Start (Raspberry Pi)
 
-One-liner to set up a fresh Pi:
+One-liner to set up and run on a fresh Pi:
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/Zac-HD/headband/main/bootstrap.sh | bash
@@ -40,14 +40,15 @@ This will:
 - Install [uv](https://docs.astral.sh/uv/)
 - Clone the repo to `~/headband`
 - Download Vosk and Piper models
+- Start the headband with auto-update
 
-Then run with auto-update:
+To restart after a reboot:
 
 ```bash
 ~/headband/run.sh
 ```
 
-The run script polls git every 5s (or 60s if no recent commits) and restarts the code on updates.
+The run script polls git every 5s (or 60s if no recent commits) and restarts on code changes.
 
 ## Development
 

@@ -64,9 +64,7 @@ cd "$INSTALL_DIR"
 
 echo ""
 echo "=== Bootstrap complete! ==="
+echo "Starting headband with auto-update..."
 echo ""
-echo "To start the headband with auto-update:"
-echo "  $INSTALL_DIR/run.sh"
-echo ""
-echo "Or run manually:"
-echo "  cd $INSTALL_DIR && uv run python -m headband"
+
+exec "$INSTALL_DIR/run.sh"
