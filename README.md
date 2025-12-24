@@ -1,10 +1,10 @@
 # headband
 
-A "magic headband" (Pathfinder-style) powered by Raspberry Pi Zero W, featuring bone-conduction speakers, MEMS microphones, LED noodles, and Claude AI integration.
+A "magic headband" (Pathfinder-style) powered by Raspberry Pi Zero 2 W, featuring bone-conduction speakers, MEMS microphones, LED noodles, and Claude AI integration.
 
 ## Hardware
 
-- **Compute:** Raspberry Pi Zero W
+- **Compute:** Raspberry Pi Zero 2 W
 - **Audio output:** Bone-conduction transducers (TBD: I2S DAC or USB audio)
 - **Audio input:** MEMS microphones (TBD: I2S ADC or USB audio)
 - **Lighting:** [Adafruit nOOds](https://www.adafruit.com/product/5509) flexible LED filaments (3V, PWM-controlled)
@@ -13,12 +13,12 @@ A "magic headband" (Pathfinder-style) powered by Raspberry Pi Zero W, featuring 
 
 ```
 ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-│  MEMS Mic   │───▶│     VAD     │───▶│  Cloud STT  │
-└─────────────┘    │  (local)    │    │ (Deepgram?) │
+│  MEMS Mic   │───▶│ silero-vad  │───▶│  Cloud STT  │
+└─────────────┘    │  (local)    │    │             │
                    └─────────────┘    └──────┬──────┘
                                              │
-                   ┌─────────────┐    ┌──────▼──────┐
-│ Bone Speaker│◀───│ Piper TTS   │◀───│   Claude    │
+┌─────────────┐    ┌─────────────┐    ┌──────▼──────┐
+│Bone Speaker │◀───│ Piper TTS   │◀───│   Claude    │
 └─────────────┘    │  (local)    │    │    API      │
                    └─────────────┘    └─────────────┘
 

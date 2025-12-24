@@ -1,8 +1,8 @@
-"""Audio input (VAD) and output (TTS via Piper)."""
+"""Audio input (VAD via silero-vad) and output (TTS via Piper)."""
 
 
 def detect_voice_activity() -> bool:
-    """Detect if there's voice activity from the MEMS microphone."""
+    """Detect voice activity from MEMS microphone using silero-vad."""
     raise NotImplementedError
 
 
