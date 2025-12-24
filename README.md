@@ -13,8 +13,8 @@ A "magic headband" (Pathfinder-style) powered by Raspberry Pi Zero 2 W, featurin
 
 ```
 ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-│  MEMS Mic   │───▶│ silero-vad  │───▶│  Cloud STT  │
-└─────────────┘    │  (local)    │    │             │
+│  MEMS Mic   │───▶│ silero-vad  │───▶│    Vosk     │
+└─────────────┘    │  (local)    │    │   (local)   │
                    └─────────────┘    └──────┬──────┘
                                              │
 ┌─────────────┐    ┌─────────────┐    ┌──────▼──────┐
@@ -26,6 +26,13 @@ A "magic headband" (Pathfinder-style) powered by Raspberry Pi Zero 2 W, featurin
 │ LED nOOds   │  (ambient patterns, future: reactive)
 └─────────────┘
 ```
+
+## Models
+
+Download these models for local processing:
+
+- **Vosk STT:** [vosk-model-small-en-us-0.15](https://alphacephei.com/vosk/models) (~40MB)
+- **Piper TTS:** [en_US voices](https://github.com/rhasspy/piper/blob/master/VOICES.md) (pick one ~20-100MB)
 
 ## Development
 
