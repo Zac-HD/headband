@@ -13,6 +13,8 @@ Magic headband project - a Pathfinder-style wearable AI assistant.
 
 ```
 Mic → silero-vad (local) → Vosk STT (local) → Claude API → Piper TTS (local) → Speaker
+                                                  ↓
+                                          memory (git repo)
 ```
 
 All processing is local except Claude API calls.
@@ -22,9 +24,29 @@ All processing is local except Claude API calls.
 - `src/headband/audio.py` - VAD + TTS (silero-vad, Piper)
 - `src/headband/stt.py` - Speech-to-text (Vosk)
 - `src/headband/claude.py` - Claude API conversation
+- `src/headband/memory.py` - Content-addressable conversation storage
 - `src/headband/leds.py` - LED control (PWM)
 - `bootstrap.sh` - One-liner Pi setup
 - `run.sh` - Auto-updating runner
+
+## Memory System
+
+Conversations are persisted to `~/.headband/data/` (a separate git repo for per-user sync):
+
+```
+~/.headband/data/
+├── .git/                    # Sync to private remote
+├── objects/
+│   └── ab/cd1234...json     # Content-addressed messages + contexts
+├── sessions/                # Session metadata
+└── index.db                 # SQLite for fast search
+```
+
+Key features:
+- **Content-addressable**: Messages stored by SHA256 hash
+- **Context snapshots**: Each response records what Claude saw
+- **Git sync**: Push to private remote for backup/multi-device
+- **Search**: SQLite index for fast queries by content, time, session
 
 ## Development
 

@@ -1,20 +1,33 @@
-"""Claude API conversation handling."""
+"""Claude API conversation handling with persistent memory."""
 
 import os
+import uuid
+from pathlib import Path
 
 from anthropic import Anthropic
 
+from headband import memory
+
 _client: Anthropic | None = None
 _conversation: list[dict[str, str]] = []
+_message_hashes: list[str] = []
+_session_id: str = ""
+_data_dir: Path | None = None
 
 SYSTEM_PROMPT = """You are a helpful assistant embedded in a magic headband. \
 Keep responses concise and conversational - they will be spoken aloud via TTS."""
 
 
-def init(api_key: str | None = None) -> None:
-    """Initialize the Anthropic client."""
-    global _client
+def init(api_key: str | None = None, data_dir: Path | None = None) -> None:
+    """Initialize the Anthropic client and memory system."""
+    global _client, _session_id, _data_dir
+
     _client = Anthropic(api_key=api_key or os.environ.get("ANTHROPIC_API_KEY"))
+    _data_dir = data_dir
+    _session_id = uuid.uuid4().hex[:12]
+
+    # Initialize memory storage
+    memory.init_data_repo(data_dir)
 
 
 def chat(user_message: str) -> str:
@@ -23,7 +36,22 @@ def chat(user_message: str) -> str:
         msg = "Client not initialized. Call init() first."
         raise RuntimeError(msg)
 
+    # Store user message
+    user_hash = memory.store_message(
+        role="user",
+        content=user_message,
+        session_id=_session_id,
+        data_dir=_data_dir,
+    )
+    _message_hashes.append(user_hash)
     _conversation.append({"role": "user", "content": user_message})
+
+    # Store context snapshot (what Claude sees)
+    context_hash = memory.store_context(
+        message_hashes=_message_hashes.copy(),
+        system_prompt=SYSTEM_PROMPT,
+        data_dir=_data_dir,
+    )
 
     response = _client.messages.create(
         model="claude-sonnet-4-20250514",
@@ -33,11 +61,34 @@ def chat(user_message: str) -> str:
     )
 
     assistant_message = response.content[0].text
+
+    # Store assistant response with context reference
+    assistant_hash = memory.store_message(
+        role="assistant",
+        content=assistant_message,
+        session_id=_session_id,
+        context_hash=context_hash,
+        data_dir=_data_dir,
+    )
+    _message_hashes.append(assistant_hash)
     _conversation.append({"role": "assistant", "content": assistant_message})
 
     return assistant_message
 
 
 def reset_conversation() -> None:
-    """Clear conversation history."""
+    """Clear conversation history and start a new session."""
+    global _session_id
     _conversation.clear()
+    _message_hashes.clear()
+    _session_id = uuid.uuid4().hex[:12]
+
+
+def sync() -> None:
+    """Sync memory to remote git repository."""
+    memory.sync(_data_dir)
+
+
+def get_session_id() -> str:
+    """Get the current session ID."""
+    return _session_id
