@@ -27,12 +27,27 @@ A "magic headband" (Pathfinder-style) powered by Raspberry Pi Zero 2 W, featurin
 └─────────────┘
 ```
 
-## Models
+## Quick Start (Raspberry Pi)
 
-Download these models for local processing:
+One-liner to set up a fresh Pi:
 
-- **Vosk STT:** [vosk-model-small-en-us-0.15](https://alphacephei.com/vosk/models) (~40MB)
-- **Piper TTS:** [en_US voices](https://github.com/rhasspy/piper/blob/master/VOICES.md) (pick one ~20-100MB)
+```bash
+curl -sSL https://raw.githubusercontent.com/Zac-HD/headband/main/bootstrap.sh | bash
+```
+
+This will:
+- Install system dependencies (git, python3.13, portaudio)
+- Install [uv](https://docs.astral.sh/uv/)
+- Clone the repo to `~/headband`
+- Download Vosk and Piper models
+
+Then run with auto-update:
+
+```bash
+~/headband/run.sh
+```
+
+The run script polls git every 5s (or 60s if no recent commits) and restarts the code on updates.
 
 ## Development
 
