@@ -1,9 +1,12 @@
 """Speech-to-text via Vosk (local)."""
 
 import json
+import logging
 from pathlib import Path
 
 from vosk import KaldiRecognizer, Model
+
+log = logging.getLogger(__name__)
 
 # Small model for Pi Zero 2 W - download from https://alphacephei.com/vosk/models
 # Recommended: vosk-model-small-en-us-0.15 (~40MB)
@@ -26,6 +29,9 @@ def transcribe(audio_data: bytes) -> str:
         msg = "Model not loaded. Call load_model() first."
         raise RuntimeError(msg)
 
+    log.debug("STT: processing %d bytes of audio", len(audio_data))
     _recognizer.AcceptWaveform(audio_data)
     result = json.loads(_recognizer.FinalResult())
-    return result.get("text", "")
+    text = result.get("text", "")
+    log.info("STT: %r", text)
+    return text

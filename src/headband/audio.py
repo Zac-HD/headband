@@ -1,5 +1,6 @@
 """Audio input (VAD via silero-vad) and output (TTS via Piper)."""
 
+import logging
 from pathlib import Path
 
 import numpy as np
@@ -7,6 +8,8 @@ import sounddevice as sd
 from numpy.typing import NDArray
 from piper.voice import PiperVoice
 from silero_vad import VADIterator, load_silero_vad
+
+log = logging.getLogger(__name__)
 
 SAMPLE_RATE = 16000
 
@@ -61,8 +64,10 @@ def speak(text: str) -> None:
         msg = "Voice not loaded. Call load_voice() first."
         raise RuntimeError(msg)
 
+    log.info("TTS: %r", text)
     audio_chunks = list(_tts_voice.synthesize_stream_raw(text))
     audio_data = b"".join(audio_chunks)
+    log.debug("TTS: synthesized %d bytes", len(audio_data))
 
     # Piper outputs 16-bit PCM at 22050 Hz by default
     samples = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32) / 32768.0
