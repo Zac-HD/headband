@@ -22,7 +22,7 @@ SAMPLE_RATE = 16000
 CHUNK_MS = 32  # silero-vad works best with 32ms chunks
 CHUNK_SAMPLES = int(SAMPLE_RATE * CHUNK_MS / 1000)
 # Use larger blocks for input to reduce callback overhead
-INPUT_BLOCK_MS = 100
+INPUT_BLOCK_MS = 200
 INPUT_BLOCK_SAMPLES = int(SAMPLE_RATE * INPUT_BLOCK_MS / 1000)
 
 # VAD setup - lazy load to avoid import-time model download
@@ -115,7 +115,7 @@ def load_voice(model_path: Path) -> None:
 
 def listen_for_speech(
     timeout: float = 30.0,
-    silence_duration: float = 1.0,
+    silence_duration: float = 2.0,
     max_duration: float = 30.0,
 ) -> NDArray[np.float32] | None:
     """
