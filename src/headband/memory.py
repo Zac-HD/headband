@@ -3,13 +3,11 @@
 Storage layout (~/.headband/data/ as a git repo):
 ```
 objects/
-  ab/cd1234...json    # content-addressed blobs (messages, contexts)
+  ab/cd1234...json    # JSON objects (messages, contexts, summaries)
 sessions/
-  2024-01-15T12:34:56Z.json  # session metadata + message refs
-index.db              # SQLite for fast search
+  <session_id>.json   # {"messages": [...], "last_time": "...", "summary": "..."}
+index.db              # SQLite index (gitignored, rebuilt on demand)
 ```
-
-Each object is stored by SHA256 of its canonical JSON representation.
 """
 
 import hashlib
@@ -20,18 +18,25 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
-# Default data directory - can be overridden
 DATA_DIR = Path.home() / ".headband" / "data"
 
+ObjectType = Literal["message", "system", "context", "summary"]
+Role = Literal["user", "assistant"]
 
-def _canonical_json(obj: dict[str, Any]) -> bytes:
+
+def _canonical_json(obj: dict[str, Any]) -> str:
     """Canonical JSON for consistent hashing."""
-    return json.dumps(obj, sort_keys=True, separators=(",", ":")).encode()
+    return json.dumps(obj, sort_keys=True, separators=(",", ":"))
 
 
-def _hash_content(content: bytes) -> str:
+def _pretty_json(obj: dict[str, Any]) -> str:
+    """Pretty JSON for human-readable session files."""
+    return json.dumps(obj, indent=2)
+
+
+def _hash_content(content: str) -> str:
     """SHA256 hash of content."""
-    return hashlib.sha256(content).hexdigest()
+    return hashlib.sha256(content.encode()).hexdigest()
 
 
 def init_data_repo(data_dir: Path | None = None) -> Path:
@@ -40,7 +45,6 @@ def init_data_repo(data_dir: Path | None = None) -> Path:
     objects_dir = data_dir / "objects"
     sessions_dir = data_dir / "sessions"
 
-    # Create directories
     objects_dir.mkdir(parents=True, exist_ok=True)
     sessions_dir.mkdir(parents=True, exist_ok=True)
 
@@ -48,7 +52,9 @@ def init_data_repo(data_dir: Path | None = None) -> Path:
     git_dir = data_dir / ".git"
     if not git_dir.exists():
         subprocess.run(["git", "init"], cwd=data_dir, check=True, capture_output=True)
-        # Create initial commit
+        # Create .gitignore for index
+        gitignore = data_dir / ".gitignore"
+        gitignore.write_text("index.db\n")
         subprocess.run(["git", "add", "."], cwd=data_dir, check=True, capture_output=True)
         subprocess.run(
             ["git", "commit", "--allow-empty", "-m", "Initialize headband data repo"],
@@ -57,50 +63,14 @@ def init_data_repo(data_dir: Path | None = None) -> Path:
             capture_output=True,
         )
 
-    # Initialize SQLite index
-    _init_index(data_dir)
-
     return data_dir
-
-
-def _init_index(data_dir: Path) -> None:
-    """Initialize SQLite search index."""
-    db_path = data_dir / "index.db"
-    with sqlite3.connect(db_path) as conn:
-        conn.executescript("""
-            CREATE TABLE IF NOT EXISTS messages (
-                hash TEXT PRIMARY KEY,
-                timestamp TEXT NOT NULL,
-                role TEXT NOT NULL,
-                content TEXT NOT NULL,
-                session_id TEXT,
-                context_hash TEXT
-            );
-
-            CREATE TABLE IF NOT EXISTS contexts (
-                hash TEXT PRIMARY KEY,
-                timestamp TEXT NOT NULL,
-                message_hashes TEXT NOT NULL,  -- JSON array
-                system_prompt TEXT
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp);
-            CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
-            CREATE INDEX IF NOT EXISTS idx_messages_content ON messages(content);
-        """)
-
-
-def _get_db(data_dir: Path | None = None) -> sqlite3.Connection:
-    """Get database connection."""
-    data_dir = data_dir or DATA_DIR
-    return sqlite3.connect(data_dir / "index.db")
 
 
 def store_object(obj: dict[str, Any], data_dir: Path | None = None) -> str:
     """Store an object and return its hash."""
     data_dir = data_dir or DATA_DIR
-    content = _canonical_json(obj)
-    obj_hash = _hash_content(content)
+    text = _canonical_json(obj)
+    obj_hash = _hash_content(text)
 
     # Store in objects/ab/cd1234...json
     prefix = obj_hash[:2]
@@ -109,7 +79,7 @@ def store_object(obj: dict[str, Any], data_dir: Path | None = None) -> str:
 
     obj_path = obj_dir / f"{obj_hash}.json"
     if not obj_path.exists():
-        obj_path.write_bytes(content)
+        obj_path.write_text(text)
 
     return obj_hash
 
@@ -123,87 +93,208 @@ def load_object(obj_hash: str, data_dir: Path | None = None) -> dict[str, Any] |
     if not obj_path.exists():
         return None
 
-    return json.loads(obj_path.read_bytes())
+    return json.loads(obj_path.read_text())
+
+
+def _load_session_meta(session_id: str, data_dir: Path) -> dict[str, Any]:
+    """Load session metadata, creating if needed."""
+    session_file = data_dir / "sessions" / f"{session_id}.json"
+    if session_file.exists():
+        return json.loads(session_file.read_text())
+    return {"messages": [], "last_time": None, "summary": None}
+
+
+def _save_session_meta(session_id: str, meta: dict[str, Any], data_dir: Path) -> None:
+    """Save session metadata."""
+    session_file = data_dir / "sessions" / f"{session_id}.json"
+    session_file.write_text(_pretty_json(meta))
 
 
 def store_message(
-    role: Literal["user", "assistant"],
+    role: Role,
     content: str,
     session_id: str,
     context_hash: str | None = None,
     data_dir: Path | None = None,
 ) -> str:
-    """Store a message and index it. Returns the message hash."""
+    """Store a message. Returns the hash."""
     data_dir = data_dir or DATA_DIR
     timestamp = datetime.now(timezone.utc).isoformat()
 
-    msg = {
+    obj = {
         "type": "message",
-        "timestamp": timestamp,
         "role": role,
         "content": content,
-        "session_id": session_id,
-        "context_hash": context_hash,
+        "time": timestamp,
+        "session": session_id,
+    }
+    if context_hash:
+        obj["context"] = context_hash
+
+    obj_hash = store_object(obj, data_dir)
+
+    # Update session metadata
+    meta = _load_session_meta(session_id, data_dir)
+    meta["messages"].append(obj_hash)
+    meta["last_time"] = timestamp
+    _save_session_meta(session_id, meta, data_dir)
+
+    return obj_hash
+
+
+def store_system(content: str, session_id: str, data_dir: Path | None = None) -> str:
+    """Store a system prompt. Returns the hash."""
+    data_dir = data_dir or DATA_DIR
+    timestamp = datetime.now(timezone.utc).isoformat()
+
+    obj = {
+        "type": "system",
+        "content": content,
+        "time": timestamp,
+        "session": session_id,
     }
 
-    msg_hash = store_object(msg, data_dir)
-
-    # Index in SQLite
-    with _get_db(data_dir) as conn:
-        conn.execute(
-            """INSERT OR IGNORE INTO messages
-               (hash, timestamp, role, content, session_id, context_hash)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (msg_hash, timestamp, role, content, session_id, context_hash),
-        )
-
-    return msg_hash
+    return store_object(obj, data_dir)
 
 
 def store_context(
     message_hashes: list[str],
-    system_prompt: str,
+    system_hash: str | None = None,
     data_dir: Path | None = None,
 ) -> str:
-    """Store a context snapshot. Returns the context hash."""
+    """Store a context snapshot (list of message refs). Returns the hash."""
     data_dir = data_dir or DATA_DIR
     timestamp = datetime.now(timezone.utc).isoformat()
 
-    ctx = {
+    obj: dict[str, Any] = {
         "type": "context",
-        "timestamp": timestamp,
-        "message_hashes": message_hashes,
-        "system_prompt": system_prompt,
+        "messages": message_hashes,
+        "time": timestamp,
+    }
+    if system_hash:
+        obj["system"] = system_hash
+
+    return store_object(obj, data_dir)
+
+
+def store_summary(
+    source_hashes: list[str],
+    summary: str,
+    level: int = 1,
+    data_dir: Path | None = None,
+) -> str:
+    """Store a summary of messages/summaries (for bottom-up summarization)."""
+    data_dir = data_dir or DATA_DIR
+    timestamp = datetime.now(timezone.utc).isoformat()
+
+    obj = {
+        "type": "summary",
+        "content": summary,
+        "sources": source_hashes,
+        "level": level,
+        "time": timestamp,
     }
 
-    ctx_hash = store_object(ctx, data_dir)
-
-    # Index in SQLite
-    with _get_db(data_dir) as conn:
-        conn.execute(
-            """INSERT OR IGNORE INTO contexts
-               (hash, timestamp, message_hashes, system_prompt)
-               VALUES (?, ?, ?, ?)""",
-            (ctx_hash, timestamp, json.dumps(message_hashes), system_prompt),
-        )
-
-    return ctx_hash
+    return store_object(obj, data_dir)
 
 
-# --- Search and retrieval ---
+def update_session_summary(
+    session_id: str,
+    summary: str,
+    data_dir: Path | None = None,
+) -> None:
+    """Update the summary for a session."""
+    data_dir = data_dir or DATA_DIR
+    meta = _load_session_meta(session_id, data_dir)
+    meta["summary"] = summary
+    _save_session_meta(session_id, meta, data_dir)
 
 
-def search_messages(
+# --- Search (rebuilds index on demand) ---
+
+
+def _ensure_index(data_dir: Path) -> sqlite3.Connection:
+    """Ensure SQLite index exists and is up-to-date."""
+    db_path = data_dir / "index.db"
+    needs_rebuild = not db_path.exists()
+
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+
+    if needs_rebuild:
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS objects (
+                hash TEXT PRIMARY KEY,
+                type TEXT NOT NULL,
+                role TEXT,
+                time TEXT,
+                session TEXT,
+                context TEXT,
+                level INTEGER,
+                content TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_time ON objects(time);
+            CREATE INDEX IF NOT EXISTS idx_session ON objects(session);
+            CREATE INDEX IF NOT EXISTS idx_type ON objects(type);
+        """)
+        _rebuild_index(data_dir, conn)
+
+    return conn
+
+
+def _rebuild_index(data_dir: Path, conn: sqlite3.Connection) -> None:
+    """Rebuild index from object files."""
+    objects_dir = data_dir / "objects"
+    if not objects_dir.exists():
+        return
+
+    for prefix_dir in objects_dir.iterdir():
+        if not prefix_dir.is_dir():
+            continue
+        for obj_file in prefix_dir.iterdir():
+            obj_hash = obj_file.stem  # Remove .json extension
+            obj = json.loads(obj_file.read_text())
+
+            conn.execute(
+                """INSERT OR REPLACE INTO objects
+                   (hash, type, role, time, session, context, level, content)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    obj_hash,
+                    obj.get("type"),
+                    obj.get("role"),
+                    obj.get("time"),
+                    obj.get("session"),
+                    obj.get("context"),
+                    obj.get("level"),
+                    obj.get("content", ""),
+                ),
+            )
+    conn.commit()
+
+
+def rebuild_index(data_dir: Path | None = None) -> None:
+    """Force rebuild the search index."""
+    data_dir = data_dir or DATA_DIR
+    db_path = data_dir / "index.db"
+    if db_path.exists():
+        db_path.unlink()
+    _ensure_index(data_dir)
+
+
+def search(
     query: str | None = None,
-    role: Literal["user", "assistant"] | None = None,
+    obj_type: ObjectType | None = None,
+    role: Role | None = None,
     session_id: str | None = None,
     since: datetime | None = None,
     until: datetime | None = None,
     limit: int = 100,
     data_dir: Path | None = None,
 ) -> list[dict[str, Any]]:
-    """Search messages with optional filters."""
+    """Search objects with optional filters."""
     data_dir = data_dir or DATA_DIR
+    conn = _ensure_index(data_dir)
 
     conditions = []
     params: list[Any] = []
@@ -211,88 +302,104 @@ def search_messages(
     if query:
         conditions.append("content LIKE ?")
         params.append(f"%{query}%")
+    if obj_type:
+        conditions.append("type = ?")
+        params.append(obj_type)
     if role:
         conditions.append("role = ?")
         params.append(role)
     if session_id:
-        conditions.append("session_id = ?")
+        conditions.append("session = ?")
         params.append(session_id)
     if since:
-        conditions.append("timestamp >= ?")
+        conditions.append("time >= ?")
         params.append(since.isoformat())
     if until:
-        conditions.append("timestamp <= ?")
+        conditions.append("time <= ?")
         params.append(until.isoformat())
 
     where = " AND ".join(conditions) if conditions else "1=1"
 
-    with _get_db(data_dir) as conn:
-        conn.row_factory = sqlite3.Row
-        cursor = conn.execute(
-            f"""SELECT hash, timestamp, role, content, session_id, context_hash
-                FROM messages
-                WHERE {where}
-                ORDER BY timestamp DESC
-                LIMIT ?""",
-            [*params, limit],
-        )
-        return [dict(row) for row in cursor.fetchall()]
+    cursor = conn.execute(
+        f"""SELECT hash, type, role, time, session, context, level, content
+            FROM objects WHERE {where} ORDER BY time DESC LIMIT ?""",
+        [*params, limit],
+    )
+    return [dict(row) for row in cursor.fetchall()]
 
 
-def get_session_messages(session_id: str, data_dir: Path | None = None) -> list[dict[str, Any]]:
-    """Get all messages for a session, in order."""
+def get_session(session_id: str, data_dir: Path | None = None) -> list[dict[str, Any]]:
+    """Get all message objects for a session, in order."""
     data_dir = data_dir or DATA_DIR
+    meta = _load_session_meta(session_id, data_dir)
 
-    with _get_db(data_dir) as conn:
-        conn.row_factory = sqlite3.Row
-        cursor = conn.execute(
-            """SELECT hash, timestamp, role, content, context_hash
-               FROM messages
-               WHERE session_id = ?
-               ORDER BY timestamp ASC""",
-            (session_id,),
-        )
-        return [dict(row) for row in cursor.fetchall()]
+    results = []
+    for obj_hash in meta.get("messages", []):
+        obj = load_object(obj_hash, data_dir)
+        if obj:
+            results.append({"hash": obj_hash, **obj})
+
+    return results
 
 
-def get_recent_sessions(limit: int = 10, data_dir: Path | None = None) -> list[dict[str, Any]]:
-    """Get recent sessions with message counts."""
+def get_session_meta(session_id: str, data_dir: Path | None = None) -> dict[str, Any]:
+    """Get session metadata (messages, last_time, summary)."""
     data_dir = data_dir or DATA_DIR
-
-    with _get_db(data_dir) as conn:
-        conn.row_factory = sqlite3.Row
-        cursor = conn.execute(
-            """SELECT session_id,
-                      MIN(timestamp) as started,
-                      MAX(timestamp) as ended,
-                      COUNT(*) as message_count
-               FROM messages
-               GROUP BY session_id
-               ORDER BY ended DESC
-               LIMIT ?""",
-            (limit,),
-        )
-        return [dict(row) for row in cursor.fetchall()]
+    return _load_session_meta(session_id, data_dir)
 
 
-def reconstruct_context(context_hash: str, data_dir: Path | None = None) -> dict[str, Any] | None:
-    """Reconstruct a full context from its hash."""
+def get_sessions(limit: int = 20, data_dir: Path | None = None) -> list[dict[str, Any]]:
+    """Get recent sessions with metadata."""
     data_dir = data_dir or DATA_DIR
+    sessions_dir = data_dir / "sessions"
 
+    if not sessions_dir.exists():
+        return []
+
+    # Sort by modification time, most recent first
+    session_files = sorted(
+        sessions_dir.glob("*.json"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+
+    results = []
+    for sf in session_files[:limit]:
+        session_id = sf.stem
+        meta = json.loads(sf.read_text())
+        results.append({
+            "session_id": session_id,
+            "message_count": len(meta.get("messages", [])),
+            "last_time": meta.get("last_time"),
+            "summary": meta.get("summary"),
+        })
+
+    return results
+
+
+def reconstruct_context(context_hash: str, data_dir: Path | None = None) -> list[dict[str, str]]:
+    """Reconstruct messages from a context snapshot."""
+    data_dir = data_dir or DATA_DIR
     ctx = load_object(context_hash, data_dir)
     if not ctx:
-        return None
+        return []
 
     messages = []
-    for msg_hash in ctx.get("message_hashes", []):
+
+    # Load system prompt if present
+    system_hash = ctx.get("system")
+    if system_hash:
+        sys_obj = load_object(system_hash, data_dir)
+        if sys_obj:
+            messages.append({"role": "system", "content": sys_obj["content"]})
+
+    # Load messages
+    for msg_hash in ctx.get("messages", []):
         msg = load_object(msg_hash, data_dir)
         if msg:
             messages.append({"role": msg["role"], "content": msg["content"]})
 
-    return {
-        "system_prompt": ctx.get("system_prompt"),
-        "messages": messages,
-    }
+    return messages
 
 
 # --- Git sync ---
@@ -302,10 +409,8 @@ def sync(data_dir: Path | None = None, remote: str = "origin") -> None:
     """Commit any changes and sync with remote."""
     data_dir = data_dir or DATA_DIR
 
-    # Add all changes
     subprocess.run(["git", "add", "."], cwd=data_dir, check=True, capture_output=True)
 
-    # Check if there are changes to commit
     result = subprocess.run(
         ["git", "status", "--porcelain"],
         cwd=data_dir,
@@ -322,7 +427,6 @@ def sync(data_dir: Path | None = None, remote: str = "origin") -> None:
             capture_output=True,
         )
 
-    # Pull then push (if remote exists)
     try:
         subprocess.run(
             ["git", "pull", "--rebase", remote, "main"],
@@ -337,4 +441,4 @@ def sync(data_dir: Path | None = None, remote: str = "origin") -> None:
             timeout=30,
         )
     except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
-        pass  # Remote may not be configured yet
+        pass  # Remote may not be configured

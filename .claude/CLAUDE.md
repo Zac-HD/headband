@@ -38,8 +38,9 @@ Conversations are persisted to `~/.headband/data/` (a separate git repo for per-
 ├── .git/                    # Sync to private remote
 ├── objects/
 │   └── ab/cd1234...json     # Content-addressed messages + contexts
-├── sessions/                # Session metadata
-└── index.db                 # SQLite for fast search
+├── sessions/
+│   └── <session_id>.json    # {messages: [], last_time, summary}
+└── index.db                 # SQLite for fast search (gitignored)
 ```
 
 Key features:

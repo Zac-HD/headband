@@ -12,6 +12,7 @@ _client: Anthropic | None = None
 _conversation: list[dict[str, str]] = []
 _message_hashes: list[str] = []
 _session_id: str = ""
+_system_hash: str = ""
 _data_dir: Path | None = None
 
 SYSTEM_PROMPT = """You are a helpful assistant embedded in a magic headband. \
@@ -20,7 +21,7 @@ Keep responses concise and conversational - they will be spoken aloud via TTS.""
 
 def init(api_key: str | None = None, data_dir: Path | None = None) -> None:
     """Initialize the Anthropic client and memory system."""
-    global _client, _session_id, _data_dir
+    global _client, _session_id, _system_hash, _data_dir
 
     _client = Anthropic(api_key=api_key or os.environ.get("ANTHROPIC_API_KEY"))
     _data_dir = data_dir
@@ -28,6 +29,9 @@ def init(api_key: str | None = None, data_dir: Path | None = None) -> None:
 
     # Initialize memory storage
     memory.init_data_repo(data_dir)
+
+    # Store system prompt as a message
+    _system_hash = memory.store_system(SYSTEM_PROMPT, _session_id, data_dir)
 
 
 def chat(user_message: str) -> str:
@@ -49,7 +53,7 @@ def chat(user_message: str) -> str:
     # Store context snapshot (what Claude sees)
     context_hash = memory.store_context(
         message_hashes=_message_hashes.copy(),
-        system_prompt=SYSTEM_PROMPT,
+        system_hash=_system_hash,
         data_dir=_data_dir,
     )
 
@@ -78,10 +82,11 @@ def chat(user_message: str) -> str:
 
 def reset_conversation() -> None:
     """Clear conversation history and start a new session."""
-    global _session_id
+    global _session_id, _system_hash
     _conversation.clear()
     _message_hashes.clear()
     _session_id = uuid.uuid4().hex[:12]
+    _system_hash = memory.store_system(SYSTEM_PROMPT, _session_id, _data_dir)
 
 
 def sync() -> None:
