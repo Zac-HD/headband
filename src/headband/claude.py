@@ -15,7 +15,7 @@ _session_id: str = ""
 _system_hash: str = ""
 _data_dir: Path | None = None
 
-MODEL = os.environ.get("HEADBAND_MODEL", "claude-sonnet-4-5-20241022")
+MODEL = os.environ.get("HEADBAND_MODEL", "claude-3-5-sonnet-20241022")
 MAX_TOKENS = 4096
 
 SYSTEM_PROMPT = """You are a helpful assistant embedded in a magic headband. \
