@@ -21,6 +21,9 @@ OUTPUT_DEVICE = os.environ.get("HEADBAND_OUTPUT_DEVICE")
 SAMPLE_RATE = 16000
 CHUNK_MS = 32  # silero-vad works best with 32ms chunks
 CHUNK_SAMPLES = int(SAMPLE_RATE * CHUNK_MS / 1000)
+# Use larger blocks for input to reduce callback overhead
+INPUT_BLOCK_MS = 100
+INPUT_BLOCK_SAMPLES = int(SAMPLE_RATE * INPUT_BLOCK_MS / 1000)
 
 # VAD setup - lazy load to avoid import-time model download
 _vad_model = None
@@ -157,49 +160,57 @@ def listen_for_speech(
         samplerate=SAMPLE_RATE,
         channels=1,
         dtype=np.float32,
-        blocksize=CHUNK_SAMPLES,
+        blocksize=INPUT_BLOCK_SAMPLES,
         latency="high",  # Larger buffer to avoid overflow
         callback=callback,
     ):
         while not stop_event.is_set():
             try:
-                chunk = audio_queue.get(timeout=0.1)
+                block = audio_queue.get(timeout=0.1)
             except queue.Empty:
                 continue
 
-            chunks_processed += 1
+            # Split block into VAD-sized chunks
+            for i in range(0, len(block), CHUNK_SAMPLES):
+                chunk = block[i : i + CHUNK_SAMPLES]
+                if len(chunk) < CHUNK_SAMPLES:
+                    break  # Skip incomplete chunks
 
-            # Check VAD
-            speech_dict = vad(chunk)
-            is_speech = speech_dict is not None and "start" in speech_dict
+                chunks_processed += 1
 
-            if not recording:
-                # Waiting for speech to start
-                if is_speech:
-                    log.debug("Speech detected, recording...")
-                    recording = True
-                    speech_chunks.append(chunk)
-                    silence_chunks = 0
-                elif chunks_processed >= timeout_chunks:
-                    log.debug("Timeout waiting for speech")
-                    return None
-            else:
-                # Recording speech
-                speech_chunks.append(chunk)
+                # Check VAD
+                speech_dict = vad(chunk)
+                is_speech = speech_dict is not None and "start" in speech_dict
 
-                if is_speech or (speech_dict is not None and "end" not in speech_dict):
-                    silence_chunks = 0
+                if not recording:
+                    # Waiting for speech to start
+                    if is_speech:
+                        log.debug("Speech detected, recording...")
+                        recording = True
+                        speech_chunks.append(chunk)
+                        silence_chunks = 0
+                    elif chunks_processed >= timeout_chunks:
+                        log.debug("Timeout waiting for speech")
+                        return None
                 else:
-                    silence_chunks += 1
+                    # Recording speech
+                    speech_chunks.append(chunk)
 
-                # Check if we should stop
-                if silence_chunks >= silence_threshold:
-                    log.debug("Silence detected, stopping recording")
-                    break
+                    if is_speech or (speech_dict is not None and "end" not in speech_dict):
+                        silence_chunks = 0
+                    else:
+                        silence_chunks += 1
 
-                if len(speech_chunks) >= max_chunks:
-                    log.debug("Max duration reached")
-                    break
+                    # Check if we should stop
+                    if silence_chunks >= silence_threshold:
+                        log.debug("Silence detected, stopping recording")
+                        stop_event.set()
+                        break
+
+                    if len(speech_chunks) >= max_chunks:
+                        log.debug("Max duration reached")
+                        stop_event.set()
+                        break
 
     if not speech_chunks:
         return None
@@ -229,6 +240,9 @@ def speak(text: str) -> None:
     # Synthesize to in-memory WAV
     wav_buffer = io.BytesIO()
     with wave.open(wav_buffer, "wb") as wav_file:
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)  # 16-bit
+        wav_file.setframerate(_tts_voice.config.sample_rate)
         _tts_voice.synthesize(text, wav_file)
 
     # Read back the audio data
