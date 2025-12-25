@@ -2,6 +2,9 @@
 # Run headband with auto-update from git
 set -uo pipefail
 
+# Ensure uv is in PATH
+export PATH="$HOME/.local/bin:$PATH"
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
