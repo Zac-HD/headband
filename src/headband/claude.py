@@ -15,6 +15,9 @@ _session_id: str = ""
 _system_hash: str = ""
 _data_dir: Path | None = None
 
+MODEL = os.environ.get("HEADBAND_MODEL", "claude-sonnet-4-5-20241022")
+MAX_TOKENS = 4096
+
 SYSTEM_PROMPT = """You are a helpful assistant embedded in a magic headband. \
 Keep responses concise and conversational - they will be spoken aloud via TTS."""
 
@@ -58,13 +61,17 @@ def chat(user_message: str) -> str:
     )
 
     response = _client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=256,
+        model=MODEL,
+        max_tokens=MAX_TOKENS,
         system=SYSTEM_PROMPT,
         messages=_conversation,
     )
 
-    assistant_message = response.content[0].text
+    # Extract text from response
+    assistant_message = ""
+    for block in response.content:
+        if hasattr(block, "text"):
+            assistant_message += block.text
 
     # Store assistant response with context reference
     assistant_hash = memory.store_message(

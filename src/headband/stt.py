@@ -30,8 +30,18 @@ def transcribe(audio_data: bytes) -> str:
         raise RuntimeError(msg)
 
     log.debug("STT: processing %d bytes of audio", len(audio_data))
-    _recognizer.AcceptWaveform(audio_data)
+
+    # Process audio in chunks for better accuracy
+    chunk_size = 4000
+    for i in range(0, len(audio_data), chunk_size):
+        chunk = audio_data[i : i + chunk_size]
+        _recognizer.AcceptWaveform(chunk)
+
     result = json.loads(_recognizer.FinalResult())
     text = result.get("text", "")
     log.info("STT: %r", text)
+
+    # Reset recognizer for next utterance
+    _recognizer.Reset()
+
     return text

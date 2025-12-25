@@ -129,8 +129,8 @@ def listen_for_speech(
 
     def callback(
         indata: NDArray[np.float32],
-        frames: int,  # noqa: ARG001
-        time_info: object,  # noqa: ARG001
+        _frames: int,
+        _time_info: object,
         status: sd.CallbackFlags,
     ) -> None:
         if status:

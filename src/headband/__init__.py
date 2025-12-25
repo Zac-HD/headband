@@ -31,7 +31,7 @@ def main() -> None:
     # Handle shutdown gracefully
     running = True
 
-    def shutdown(signum: int, frame: object) -> None:  # noqa: ARG001
+    def shutdown(signum: int, _frame: object) -> None:
         nonlocal running
         log.info("Received signal %d, shutting down", signum)
         running = False
