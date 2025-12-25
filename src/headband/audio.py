@@ -58,7 +58,13 @@ def _get_input_device() -> int | str | None:
         devices = sd.query_devices()
         log.error("No default input device. Available devices:")
         for i, d in enumerate(devices):
-            log.error("  [%d] %s (in=%d, out=%d)", i, d["name"], d["max_input_channels"], d["max_output_channels"])
+            log.error(
+                "  [%d] %s (in=%d, out=%d)",
+                i,
+                d["name"],
+                d["max_input_channels"],
+                d["max_output_channels"],
+            )
         msg = "No input device available. Set HEADBAND_INPUT_DEVICE to device index."
         raise RuntimeError(msg) from None
 
@@ -78,7 +84,13 @@ def _get_output_device() -> int | str | None:
         devices = sd.query_devices()
         log.error("No default output device. Available devices:")
         for i, d in enumerate(devices):
-            log.error("  [%d] %s (in=%d, out=%d)", i, d["name"], d["max_input_channels"], d["max_output_channels"])
+            log.error(
+                "  [%d] %s (in=%d, out=%d)",
+                i,
+                d["name"],
+                d["max_input_channels"],
+                d["max_output_channels"],
+            )
         msg = "No output device available. Set HEADBAND_OUTPUT_DEVICE to device index."
         raise RuntimeError(msg) from None
 
@@ -205,17 +217,29 @@ def audio_to_bytes(audio: NDArray[np.float32]) -> bytes:
 
 def speak(text: str) -> None:
     """Synthesize and play text via Piper TTS."""
+    import io
+    import wave
+
     if _tts_voice is None:
         msg = "Voice not loaded. Call load_voice() first."
         raise RuntimeError(msg)
 
     log.info("TTS: %r", text)
-    audio_chunks = list(_tts_voice.synthesize_stream_raw(text))
-    audio_data = b"".join(audio_chunks)
-    log.debug("TTS: synthesized %d bytes", len(audio_data))
 
-    # Piper outputs 16-bit PCM at 22050 Hz by default
+    # Synthesize to in-memory WAV
+    wav_buffer = io.BytesIO()
+    with wave.open(wav_buffer, "wb") as wav_file:
+        _tts_voice.synthesize(text, wav_file)
+
+    # Read back the audio data
+    wav_buffer.seek(0)
+    with wave.open(wav_buffer, "rb") as wav_file:
+        sample_rate = wav_file.getframerate()
+        audio_data = wav_file.readframes(wav_file.getnframes())
+
+    log.debug("TTS: synthesized %d bytes at %d Hz", len(audio_data), sample_rate)
+
     samples = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32) / 32768.0
     output_device = _get_output_device()
-    sd.play(samples, samplerate=22050, device=output_device)
+    sd.play(samples, samplerate=sample_rate, device=output_device)
     sd.wait()
