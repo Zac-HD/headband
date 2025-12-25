@@ -13,9 +13,11 @@ cd "$SCRIPT_DIR"
 
 BRANCH="${HEADBAND_BRANCH:-main}"
 HEADBAND_PID=""
+RUNNING=true
 
 cleanup() {
     echo "Shutting down..."
+    RUNNING=false
     if [ -n "$HEADBAND_PID" ] && kill -0 "$HEADBAND_PID" 2>/dev/null; then
         kill "$HEADBAND_PID"
     fi
@@ -55,7 +57,7 @@ start_headband
 
 echo "Auto-update watcher running (Ctrl+C to stop)"
 
-while true; do
+while $RUNNING; do
     # Check if headband crashed and restart if needed
     if ! kill -0 "$HEADBAND_PID" 2>/dev/null; then
         echo "Headband process died, restarting..."
