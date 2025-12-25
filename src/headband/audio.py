@@ -146,6 +146,7 @@ def listen_for_speech(
         channels=1,
         dtype=np.float32,
         blocksize=CHUNK_SAMPLES,
+        latency="high",  # Larger buffer to avoid overflow
         callback=callback,
     ):
         while not stop_event.is_set():
