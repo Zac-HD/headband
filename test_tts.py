@@ -13,17 +13,10 @@ MODELS_DIR = Path.home() / "headband" / "models"
 PIPER_VOICE = MODELS_DIR / "en_US-lessac-medium.onnx"
 
 ULYSSES = """
-It little profits that an idle king,
-By this still hearth, among these barren crags,
-Match'd with an aged wife, I mete and dole
-Unequal laws unto a savage race,
-That hoard, and sleep, and feed, and know not me.
-I cannot rest from travel: I will drink
-Life to the lees: All times I have enjoy'd
-Greatly, have suffer'd greatly, both with those
-That loved me, and alone, on shore, and when
-Thro' scudding drifts the rainy Hyades
-Vext the dim sea: I am become a name;
+Old age hath yet his honour and his toil;
+Death closes all: but something ere the end,
+Some work of noble note, may yet be done,
+Not unbecoming men that strove with Gods.
 """
 
 print(f"Loading voice from {PIPER_VOICE}")
@@ -54,13 +47,13 @@ if len(audio_data) == 0:
     print(f"Available methods: {[m for m in dir(voice) if not m.startswith('_')]}")
 
     # Method 3: Try synthesize_ids_to_raw if available
-    if hasattr(voice, 'synthesize_stream_raw'):
+    if hasattr(voice, "synthesize_stream_raw"):
         chunks = list(voice.synthesize_stream_raw(ULYSSES))
         audio_data = b"".join(chunks)
         print(f"Method 2 (synthesize_stream_raw): {len(audio_data)} bytes")
 
     # Method 4: Try audio_float generator
-    if hasattr(voice, 'synthesize_wav'):
+    if hasattr(voice, "synthesize_wav"):
         print("Has synthesize_wav method")
 
 if len(audio_data) > 0:
