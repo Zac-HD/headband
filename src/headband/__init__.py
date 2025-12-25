@@ -4,6 +4,7 @@ import logging
 import os
 import signal
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 __version__ = "0.1.0"
@@ -42,16 +43,34 @@ def main() -> None:
         # Import here to avoid loading models at import time
         from headband import audio, claude, stt
 
-        # Load models
-        log.info("Loading Vosk model from %s", VOSK_MODEL)
-        stt.load_model(VOSK_MODEL)
+        # Check audio devices first (fail fast before loading models)
+        log.info("Checking audio devices")
+        audio.check_audio_devices()
 
-        log.info("Loading Piper voice from %s", PIPER_VOICE)
-        audio.load_voice(PIPER_VOICE)
+        # Load models concurrently
+        log.info("Loading models...")
 
-        # Initialize Claude
-        log.info("Initializing Claude API")
-        claude.init()
+        def load_vosk() -> None:
+            log.info("Loading Vosk model from %s", VOSK_MODEL)
+            stt.load_model(VOSK_MODEL)
+
+        def load_piper() -> None:
+            log.info("Loading Piper voice from %s", PIPER_VOICE)
+            audio.load_voice(PIPER_VOICE)
+
+        def init_claude() -> None:
+            log.info("Initializing Claude API")
+            claude.init()
+
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            futures = [
+                executor.submit(load_vosk),
+                executor.submit(load_piper),
+                executor.submit(init_claude),
+            ]
+            # Wait for all and propagate any exceptions
+            for future in as_completed(futures):
+                future.result()
 
         log.info("Headband ready - listening for speech")
 

@@ -83,6 +83,13 @@ def _get_output_device() -> int | str | None:
         raise RuntimeError(msg) from None
 
 
+def check_audio_devices() -> None:
+    """Check that audio devices are available. Call early to fail fast."""
+    _get_input_device()
+    _get_output_device()
+    log.debug("Audio devices OK")
+
+
 def load_voice(model_path: Path) -> None:
     """Load a Piper voice model."""
     global _tts_voice
