@@ -1,6 +1,7 @@
 """Audio input (VAD via silero-vad) and output (TTS via Piper)."""
 
 import logging
+import os
 import queue
 import threading
 from pathlib import Path
@@ -12,6 +13,10 @@ from piper.voice import PiperVoice
 from silero_vad import VADIterator, load_silero_vad
 
 log = logging.getLogger(__name__)
+
+# Allow override via environment
+INPUT_DEVICE = os.environ.get("HEADBAND_INPUT_DEVICE")
+OUTPUT_DEVICE = os.environ.get("HEADBAND_OUTPUT_DEVICE")
 
 SAMPLE_RATE = 16000
 CHUNK_MS = 32  # silero-vad works best with 32ms chunks
@@ -34,6 +39,48 @@ def _ensure_vad() -> VADIterator:
         _vad_iterator = VADIterator(_vad_model, sampling_rate=SAMPLE_RATE)
         log.debug("VAD model loaded")
     return _vad_iterator
+
+
+def _get_input_device() -> int | str | None:
+    """Get input device, checking availability."""
+    if INPUT_DEVICE is not None:
+        try:
+            return int(INPUT_DEVICE)
+        except ValueError:
+            return INPUT_DEVICE
+
+    # Check if default device exists
+    try:
+        sd.query_devices(kind="input")
+        return None  # Use default
+    except sd.PortAudioError:
+        # List available devices
+        devices = sd.query_devices()
+        log.error("No default input device. Available devices:")
+        for i, d in enumerate(devices):
+            log.error("  [%d] %s (in=%d, out=%d)", i, d["name"], d["max_input_channels"], d["max_output_channels"])
+        msg = "No input device available. Set HEADBAND_INPUT_DEVICE to device index."
+        raise RuntimeError(msg) from None
+
+
+def _get_output_device() -> int | str | None:
+    """Get output device, checking availability."""
+    if OUTPUT_DEVICE is not None:
+        try:
+            return int(OUTPUT_DEVICE)
+        except ValueError:
+            return OUTPUT_DEVICE
+
+    try:
+        sd.query_devices(kind="output")
+        return None
+    except sd.PortAudioError:
+        devices = sd.query_devices()
+        log.error("No default output device. Available devices:")
+        for i, d in enumerate(devices):
+            log.error("  [%d] %s (in=%d, out=%d)", i, d["name"], d["max_input_channels"], d["max_output_channels"])
+        msg = "No output device available. Set HEADBAND_OUTPUT_DEVICE to device index."
+        raise RuntimeError(msg) from None
 
 
 def load_voice(model_path: Path) -> None:
@@ -85,7 +132,9 @@ def listen_for_speech(
 
     log.debug("Listening for speech...")
 
+    input_device = _get_input_device()
     with sd.InputStream(
+        device=input_device,
         samplerate=SAMPLE_RATE,
         channels=1,
         dtype=np.float32,
@@ -159,5 +208,6 @@ def speak(text: str) -> None:
 
     # Piper outputs 16-bit PCM at 22050 Hz by default
     samples = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32) / 32768.0
-    sd.play(samples, samplerate=22050)
+    output_device = _get_output_device()
+    sd.play(samples, samplerate=22050, device=output_device)
     sd.wait()

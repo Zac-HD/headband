@@ -56,10 +56,10 @@ def init_data_repo(data_dir: Path | None = None) -> Path:
         gitignore = data_dir / ".gitignore"
         gitignore.write_text("index.db\n")
         subprocess.run(["git", "add", "."], cwd=data_dir, check=True, capture_output=True)
+        # Commit may fail if git user not configured - that's fine
         subprocess.run(
             ["git", "commit", "--allow-empty", "-m", "Initialize headband data repo"],
             cwd=data_dir,
-            check=True,
             capture_output=True,
         )
 

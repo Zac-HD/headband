@@ -5,6 +5,9 @@ set -uo pipefail
 # Ensure uv is in PATH
 export PATH="$HOME/.local/bin:$PATH"
 
+# Suppress ONNX runtime GPU warning (expected on CPU-only systems)
+export ORT_DISABLE_RT_LOGS=1
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
@@ -53,6 +56,13 @@ start_headband
 echo "Auto-update watcher running (Ctrl+C to stop)"
 
 while true; do
+    # Check if headband crashed and restart if needed
+    if ! kill -0 "$HEADBAND_PID" 2>/dev/null; then
+        echo "Headband process died, restarting..."
+        sleep 2  # Brief pause before restart
+        start_headband
+    fi
+
     # Check how old the current commit is
     age=$(get_commit_age_seconds)
     if [ "$age" -gt 3600 ]; then
@@ -64,12 +74,6 @@ while true; do
     fi
 
     sleep "$sleep_time"
-
-    # Check if headband crashed and restart if needed
-    if ! kill -0 "$HEADBAND_PID" 2>/dev/null; then
-        echo "Headband process died, restarting..."
-        start_headband
-    fi
 
     # Check for updates
     old_head=$(git rev-parse HEAD)
