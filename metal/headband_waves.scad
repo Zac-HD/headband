@@ -22,7 +22,7 @@ holder_panel_height = 30;
 holder_base_depth = 10;
 holder_outline = 3;
 holder_corner_radius = 5;
-holder_wave_period = 15;  // Half of connector period
+holder_num_peaks = 4;      // Upper peaks (one at each edge, rest free)
 holder_wave_thickness = 2;
 
 // Resolution
@@ -172,129 +172,93 @@ module gem_holder() {
             circle(r = 1, $fn = 60);
 }
 
-// Electronics holder - foldable box
+// Electronics holder - foldable panel with sine wave fill
 module electronics_holder() {
-    // Position: left edge extends inward, right edge at end cap
+    // Position
     holder_right = half_width - end_cap_width;
-    holder_left = holder_right - holder_width - 2;  // Extend inward a bit
+    holder_left = holder_right - holder_width;
 
-    // Y positions where lower wave bottom edge is
+    // Panel bounds
+    panel_top = -holder_base_depth;
+    panel_bottom = panel_top - holder_panel_height;
+
+    // Wave spans inner panel width (peaks meet inner edges of side walls)
+    t = holder_wave_thickness / 2;
+    wave_left = holder_left + holder_outline;
+    wave_right = holder_right - holder_outline;
+    wave_width = wave_right - wave_left;
+
+    // Sine wave: N peaks means N-1 periods
+    wave_period = wave_width / (holder_num_peaks - 1);
+    k = 360 / wave_period;  // angular frequency in degrees per unit
+
+    // Position wave so:
+    // - outer/top edge at peaks touches panel_top
+    // - inner/top edge at troughs touches inner edge of bottom outline
+    inner_top = panel_top;
+    inner_bottom = panel_bottom + holder_outline;
+    // wave_mid + wave_amp + t = inner_top  →  wave_mid + wave_amp = inner_top - t
+    // wave_mid - wave_amp + t = inner_bottom  →  wave_mid - wave_amp = inner_bottom - t
+    // Adding: 2*wave_mid = inner_top + inner_bottom - 2t
+    // Subtracting: 2*wave_amp = inner_top - inner_bottom
+    wave_mid = (inner_top + inner_bottom) / 2 - t;
+    wave_amp = (inner_top - inner_bottom) / 2;
+
+    // Wave center line
+    function wave_y(x) = wave_mid + wave_amp * cos((x - wave_left) * k);
+
+    // Derivative (for normal calculation)
+    function wave_dy(x) = -wave_amp * k * PI/180 * sin((x - wave_left) * k);
+
+    // Vertical connectors from bottom wave to panel
     bottom_at_right = bottom_y(holder_right);
-    bottom_at_left = bottom_y(max(holder_left, 0));
+    bottom_at_left = bottom_y(holder_left);
 
-    // Right vertical: from bottom_y down past y=0
-    module right_vertical() {
-        translate([holder_right - holder_outline, -holder_base_depth])
-            square([holder_outline, bottom_at_right + holder_base_depth]);
-    }
+    // Left vertical
+    translate([holder_left, panel_top])
+        square([holder_outline, bottom_at_left - panel_top]);
 
-    // Left vertical: from bottom_y at that x down
-    module left_vertical() {
-        translate([holder_left, -holder_base_depth])
-            square([holder_outline, bottom_at_left + holder_base_depth]);
-    }
+    // Right vertical
+    translate([holder_right - holder_outline, panel_top])
+        square([holder_outline, bottom_at_right - panel_top]);
 
-    // Outer panel with sine fill
-    module outer_panel() {
-        panel_top = -holder_base_depth;
-        panel_bottom = panel_top - holder_panel_height;
-        panel_width = holder_right - holder_left;
+    // Panel outline (left, bottom, right edges with rounded corners)
+    // Left edge
+    translate([holder_left, panel_bottom + holder_corner_radius])
+        square([holder_outline, holder_panel_height - holder_corner_radius]);
 
-        // Outline with rounded bottom corners (90 degree arcs)
-        module panel_outline() {
-            // Bottom edge
-            translate([holder_left + holder_corner_radius, panel_bottom])
-                square([panel_width - 2*holder_corner_radius, holder_outline]);
+    // Right edge
+    translate([holder_right - holder_outline, panel_bottom + holder_corner_radius])
+        square([holder_outline, holder_panel_height - holder_corner_radius]);
 
-            // Left edge (below corner)
-            translate([holder_left, panel_bottom + holder_corner_radius])
-                square([holder_outline, holder_panel_height - holder_corner_radius]);
+    // Bottom edge
+    translate([holder_left + holder_corner_radius, panel_bottom])
+        square([holder_width - 2*holder_corner_radius, holder_outline]);
 
-            // Right edge (below corner)
-            translate([holder_right - holder_outline, panel_bottom + holder_corner_radius])
-                square([holder_outline, holder_panel_height - holder_corner_radius]);
-
-            // Bottom left corner - 90 degree arc
-            translate([holder_left + holder_corner_radius, panel_bottom + holder_corner_radius])
-                difference() {
-                    circle(r = holder_corner_radius, $fn = 30);
-                    circle(r = holder_corner_radius - holder_outline, $fn = 30);
-                    translate([0, 0]) square([holder_corner_radius, holder_corner_radius]);
-                    translate([-holder_corner_radius, 0]) square([holder_corner_radius, holder_corner_radius]);
-                }
-
-            // Bottom right corner - 90 degree arc
-            translate([holder_right - holder_corner_radius, panel_bottom + holder_corner_radius])
-                difference() {
-                    circle(r = holder_corner_radius, $fn = 30);
-                    circle(r = holder_corner_radius - holder_outline, $fn = 30);
-                    translate([0, 0]) square([holder_corner_radius, holder_corner_radius]);
-                    translate([-holder_corner_radius, 0]) square([holder_corner_radius, holder_corner_radius]);
-                }
+    // Bottom-left corner (90 degree arc)
+    translate([holder_left + holder_corner_radius, panel_bottom + holder_corner_radius])
+        difference() {
+            circle(r = holder_corner_radius, $fn = 30);
+            circle(r = holder_corner_radius - holder_outline, $fn = 30);
+            translate([-holder_corner_radius, 0]) square([2*holder_corner_radius, holder_corner_radius]);
+            translate([0, -holder_corner_radius]) square([holder_corner_radius, 2*holder_corner_radius]);
         }
 
-        // Horizontal sine wave fill
-        module panel_sine_fill() {
-            inner_left = holder_left + holder_outline;
-            inner_right = holder_right - holder_outline;
-            inner_top = panel_top;
-            inner_bottom = panel_bottom + holder_outline;  // Top of bottom outline
-            inner_width = inner_right - inner_left;
-            inner_height = inner_top - inner_bottom;
-
-            // Mid point and amplitude
-            // We want: at wave minimum, top edge of wave = inner_bottom
-            // So: mid_y - wave_amp + holder_wave_thickness/2 = inner_bottom
-            // And: at wave maximum, bottom edge of wave = inner_top
-            // So: mid_y + wave_amp - holder_wave_thickness/2 = inner_top
-            // Solving: wave_amp = inner_height/2 + holder_wave_thickness/2
-            mid_y = (inner_top + inner_bottom) / 2;
-            wave_amp = inner_height / 2 + holder_wave_thickness / 2;
-
-            // Shift wave horizontally so it's fully inside at edges
-            // Start 1/4 period earlier (so we enter going up from left edge)
-            // End 1/4 period later (so we exit going down into right edge)
-            phase_shift = holder_wave_period / 4;
-            wave_left = inner_left - phase_shift;
-            wave_right = inner_right + phase_shift;
-            wave_width = wave_right - wave_left;
-
-            function sine_y(x) =
-                mid_y + wave_amp * sin((x - wave_left) / holder_wave_period * 360);
-
-            function sine_dy(x) =
-                let(dx = 0.1)
-                (sine_y(x + dx) - sine_y(x - dx)) / (2 * dx);
-
-            function offset_point(x, dist) =
-                let(dy = sine_dy(x),
-                    len = sqrt(1 + dy * dy),
-                    nx = -dy / len,
-                    ny = 1 / len)
-                [x + nx * dist, sine_y(x) + ny * dist];
-
-            wave_steps = 100;
-
-            outer_pts = [for (i = [0 : wave_steps])
-                let(x = wave_left + i * wave_width / wave_steps)
-                offset_point(x, holder_wave_thickness/2)
-            ];
-
-            inner_pts = [for (i = [wave_steps : -1 : 0])
-                let(x = wave_left + i * wave_width / wave_steps)
-                offset_point(x, -holder_wave_thickness/2)
-            ];
-
-            polygon(concat(outer_pts, inner_pts));
+    // Bottom-right corner (90 degree arc)
+    translate([holder_right - holder_corner_radius, panel_bottom + holder_corner_radius])
+        difference() {
+            circle(r = holder_corner_radius, $fn = 30);
+            circle(r = holder_corner_radius - holder_outline, $fn = 30);
+            translate([-holder_corner_radius, 0]) square([2*holder_corner_radius, holder_corner_radius]);
+            translate([-holder_corner_radius, -holder_corner_radius]) square([holder_corner_radius, 2*holder_corner_radius]);
         }
 
-        panel_outline();
-        panel_sine_fill();
+    // Sine wave as union of overlapping circles along path
+    wave_steps = 400;
+    for (i = [0:wave_steps]) {
+        x = wave_left + i * wave_width / wave_steps;
+        translate([x, wave_y(x)]) circle(r = t, $fn = 64);
     }
-
-    right_vertical();
-    left_vertical();
-    outer_panel();
 }
 
 // Render half crown and mirror
